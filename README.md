@@ -1,5 +1,7 @@
 # Baseline Predictive Pipeline -- ETAI
 
+*Daniely da Silva Machado - 20260617*
+
 This is the **starting point** for my semester project: a small but *complete* predictive pipeline -- every piece a real project needs (entry point, config, data loading, preprocessing, model, evaluation), just kept as simple as possible for now.
 
 The task: predict two-year recidivism using ProPublica's COMPAS
