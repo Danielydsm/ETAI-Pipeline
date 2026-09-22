@@ -15,6 +15,7 @@ from src.preprocessing import preprocess
 from src.model import build_model
 from src.evaluate import evaluate, fairness_report
 from src.results import save_run
+from src.cleaning_data import clean_dataset
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -26,7 +27,8 @@ def main():
     config = load_config()
 
     df = load_data(config["data"]["path"])
-
+    df = clean_dataset(df, config["diagnostics"])
+    
     X_train, X_test, y_train, y_test, extras_test = preprocess(
         df,
         target=config["data"]["target"],
