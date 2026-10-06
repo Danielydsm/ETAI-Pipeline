@@ -38,6 +38,23 @@ This table is updated after each practical class, so you can always see what cha
 | Week | Practical class focus | Added to the pipeline |
 |------|------------------------|------------------------|
 | 2 | Introduction & baseline pipeline | Initial version: project structure, a single naive train/test split (no cross-validation), minimal preprocessing (drop rows with missing values, one-hot encode categoricals), logistic regression baseline, a first (deliberately simple) fairness check comparing our model's and COMPAS's own false-positive rate by race, train-vs-test accuracy reporting (to start spotting overfitting), and each run's full report saved automatically to `results/` |
+| 3 | Data diagnosis (EDA) | `clean_dataset()` driven by the diagnosis written as rules in `config.yaml` (`validity_rules`, `canonical_categories`, `placeholder_tokens`, `redundant_columns`): category cleanup, impossible values / placeholders → `NaN`, redundant-column removal |
+| 4 | Leak-safe preprocessing + honest evaluation | Row-preserving cleaning + training-only `drop_duplicate_rows()`; `split_dev_test()` (locked test set) replacing `split_train_test`; `build_preprocessor()` (mechanism-matched imputation, target encoding, robust scaling — all fitted inside the `Pipeline`); stratified 5-fold CV (`cross_validate_pipeline`, out-of-fold classification report + fairness check); `dummy` and `random_forest` models |
+
+## Model evaluation
+
+The pipeline no longer trusts a single train/test split. It carves a **locked test set** aside once (20%, stratified, seed 42 — never used to fit or choose), and judges every candidate with **stratified 5-fold cross-validation** on the development set, fitting the *whole* pipeline (preprocessing + model) inside each fold so no fold leaks into its own preprocessing.
+
+| Model | Holdout accuracy (1 split) | Holdout range, 30 seeds | CV accuracy (mean ± std) | CV train–val gap |
+|---|---|---|---|---|
+| Dummy (majority) | 0.550 | 0.550 – 0.550 | 0.549 ± 0.000 | 0.000 |
+| Logistic regression | 0.672 | 0.658 – 0.697 | 0.672 ± 0.013 | +0.003 |
+| Decision tree | 0.602 | 0.558 – 0.624 | 0.611 ± 0.015 | +0.084 |
+| Random forest | 0.655 | 0.623 – 0.674 | 0.652 ± 0.017 | +0.080 |
+
+**Which number to trust: CV.** A single holdout is one draw from a distribution — for logistic regression the same model moves from 0.658 to 0.697 (~4 points) just by changing the seed, so a lone 0.672 is partly luck. CV uses every development row for validation and reports the mean and its spread (std), so it is both more stable and more honest. The week 2/3 "best model" conclusion still holds under CV: logistic regression remains the best model (highest CV accuracy) and the least overfit (gap ≈ 0 vs ~0.08 for the tree and forest).
+
+Changing the scaler (`none` / `standard` / `minmax` / `robust`) leaves CV at ~0.672 (±0.013) — the difference is far smaller than the CV noise, so `robust` stays (a safe default for the skewed counts). KNN imputation was also tried and was slightly *worse* (0.669 vs 0.672) — the `_was_missing` flags already carry the missingness signal, so the median fill stays.
 
 ## Environment setup
 
