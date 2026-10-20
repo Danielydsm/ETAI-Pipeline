@@ -1,32 +1,41 @@
 """
 Saving each run's results to disk.
 
-Writes each run's full report (cross-validation scores, classification report, fairness table)
-to a timestamped file in `results/`, so runs can be compared after changing config.yaml.
+Writes each run's full report (cross-validation scores, classification report, fairness
+table) to a timestamped file in `results/`, and appends one row per run to the scoreboard
+CSV (`results/runs.csv`), so runs can be compared after changing config.yaml.
 """
 import os
-from datetime import datetime
+
+import pandas as pd
 
 
-def save_run(results_dir: str, config: dict, report_text: str) -> str:
+def save_scores(path: str, row: dict) -> pd.DataFrame:
+    """Appends one run to the CSV at `path` (created if needed) and returns all runs."""
+    runs = pd.read_csv(path, dtype={"run": str}) if os.path.exists(path) else pd.DataFrame()
+    runs = pd.concat([runs, pd.DataFrame([row])], ignore_index=True)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    runs.to_csv(path, index=False)
+    return runs
+
+
+def save_run(results_dir: str, run: str, config: dict, report_text: str) -> str:
     """
-    Writes one run's full report to a timestamped .txt file inside
-    `results_dir` (created automatically if it doesn't exist yet) and
-    returns the path that was written.
+    Writes one run's full report to a timestamped .txt file inside `results_dir` (created
+    automatically if it doesn't exist yet) and returns the path that was written.
     """
     os.makedirs(results_dir, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(results_dir, f"run_{timestamp}.txt")
+    path = os.path.join(results_dir, f"run_{run}.txt")
 
     cv = config["cv"]
     header = (
-        f"Run: {timestamp}\n"
+        f"Run: {run}\n"
         f"Model: {config['model']['type']}  params={config['model'].get('params')}\n"
         f"Preprocessing: encoder={config['preprocessing']['encoder']}  "
         f"scaler={config['preprocessing']['scaler']}\n"
         f"CV: {cv['n_splits']} stratified folds  shuffle={cv.get('shuffle', True)}  "
-        f"random_state={cv.get('random_state')}  metric={cv.get('scoring', 'accuracy')}\n"
+        f"random_state={cv.get('random_state')}  selection_metric={cv.get('selection_metric', 'accuracy')}  "
+        f"metrics={cv.get('metrics')}\n"
     )
     tuning = config.get("tuning", {})
     if tuning.get("enabled", False):

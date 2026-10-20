@@ -23,8 +23,9 @@ go on.
 │   ├── data.py             # loading
 │   ├── preprocessing.py    # cleaning + train/test split
 │   ├── model.py             # model construction
-│   ├── evaluate.py         # accuracy metrics + fairness check
-│   └── results.py          # saves each run's report to disk
+│   ├── evaluate.py         # metrics from probabilities + fairness check
+│   ├── tuning.py           # Optuna hyperparameter search + nested CV
+│   └── results.py          # saves each run's report + the scoreboard
 ├── results/                # created automatically -- one file per run (not tracked in git)
 └── data/
     ├── compas_two_year_recidivism.csv
@@ -40,6 +41,7 @@ This table is updated after each practical class, so you can always see what cha
 | 2 | Introduction & baseline pipeline | Initial version: project structure, a single naive train/test split (no cross-validation), minimal preprocessing (drop rows with missing values, one-hot encode categoricals), logistic regression baseline, a first (deliberately simple) fairness check comparing our model's and COMPAS's own false-positive rate by race, train-vs-test accuracy reporting (to start spotting overfitting), and each run's full report saved automatically to `results/` |
 | 3 | Data diagnosis (EDA) | `clean_dataset()` driven by the diagnosis written as rules in `config.yaml` (`validity_rules`, `canonical_categories`, `placeholder_tokens`, `redundant_columns`): category cleanup, impossible values / placeholders → `NaN`, redundant-column removal |
 | 4 | Leak-safe preprocessing + honest evaluation | Row-preserving cleaning + training-only `drop_duplicate_rows()`; `split_dev_test()` (locked test set) replacing `split_train_test`; `build_preprocessor()` (mechanism-matched imputation, target encoding, robust scaling — all fitted inside the `Pipeline`); stratified 5-fold CV (`cross_validate_pipeline`, out-of-fold classification report + fairness check); `dummy` and `random_forest` models |
+| 7 | Boosting + evaluation by probabilities | `gradient_boosting`, `hist_gradient_boosting` and `naive_bayes` models; eight metrics scored from out-of-fold **probabilities** (ROC-AUC is the selection metric, chosen before comparing models); a **scoreboard** (`results/runs.csv`) keeps every run with the no-model floor and the untuned score; the corrected paired t-test separates real differences from noise |
 
 ## Model evaluation
 
@@ -55,6 +57,36 @@ The pipeline no longer trusts a single train/test split. It carves a **locked te
 **Which number to trust: CV.** A single holdout is one draw from a distribution — for logistic regression the same model moves from 0.658 to 0.697 (~4 points) just by changing the seed, so a lone 0.672 is partly luck. CV uses every development row for validation and reports the mean and its spread (std), so it is both more stable and more honest. The week 2/3 "best model" conclusion still holds under CV: logistic regression remains the best model (highest CV accuracy) and the least overfit (gap ≈ 0 vs ~0.08 for the tree and forest).
 
 Changing the scaler (`none` / `standard` / `minmax` / `robust`) leaves CV at ~0.672 (±0.013) — the difference is far smaller than the CV noise, so `robust` stays (a safe default for the skewed counts). KNN imputation was also tried and was slightly *worse* (0.669 vs 0.672) — the `_was_missing` flags already carry the missingness signal, so the median fill stays.
+
+## Scoreboard (Week 7)
+
+From week 7 the pipeline reports **eight metrics** computed from out-of-fold **probabilities**
+(not a single 0/1 prediction), and optimises one **selection metric**: **F1**. F1 (the harmonic
+mean of precision and recall) is the choice because recidivism has a clear positive class to
+catch, both false positives and false negatives matter, and accuracy is a poor guide on this
+imbalanced target — so a single balanced number that rewards detecting reoffenders (recall)
+without flooding the flagged set (precision) beats threshold-free ranking.
+
+Every `python main.py` run appends one row to `results/runs.csv` with the model, its settings,
+the selection metric's mean/std and per-fold scores, plus the no-model floor (a dummy) and the
+untuned score. Nested-CV (tuned) results, best first:
+
+| Model | Tuned | F1 (mean ± std) | Untuned | Floor |
+|---|---|---|---|---|
+| HistGradientBoosting | ✓ | 0.644 ± 0.018 | 0.630 | 0.000 |
+| Random forest | ✓ | 0.639 ± 0.018 | 0.606 | 0.000 |
+| Logistic regression | ✓ | 0.633 ± 0.012 | 0.634 | 0.000 |
+| Decision tree | ✓ | 0.633 ± 0.019 | 0.567 | 0.000 |
+| Gradient boosting | ✓ | 0.620 ± 0.021 | 0.607 | 0.000 |
+| AdaBoost | ✓ | 0.619 ± 0.016 | 0.599 | 0.000 |
+| Oblique random forest | ✓ | 0.616 ± 0.011 | 0.596 | 0.000 |
+| Naive Bayes | ✓ | 0.404 ± 0.013 | 0.403 | 0.000 |
+| Dummy (floor) | ✗ | 0.000 ± 0.000 | 0.000 | 0.000 |
+
+The corrected paired t-test on the same folds says HistGradientBoosting is not significantly
+better than random forest, logistic regression or the decision tree, but it is better than
+gradient boosting (p ≈ 0.04), AdaBoost and the oblique forest (p ≈ 0.02), and far better than
+Naive Bayes (p ≈ 0.0001).
 
 ## Environment setup
 
