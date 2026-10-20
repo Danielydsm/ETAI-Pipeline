@@ -1,7 +1,11 @@
 """Model construction and pipeline assembly."""
 from sklearn.dummy import DummyClassifier
-from sklearn.ensemble import AdaBoostClassifier, BaggingClassifier, RandomForestClassifier
+from sklearn.ensemble import (
+    AdaBoostClassifier, BaggingClassifier, GradientBoostingClassifier,
+    HistGradientBoostingClassifier, RandomForestClassifier,
+)
 from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
 from sklearn.pipeline import Pipeline
 from sklearn.random_projection import SparseRandomProjection
 from sklearn.tree import DecisionTreeClassifier
@@ -45,6 +49,10 @@ _MODELS = {
     # week 6: ensembles (a builder function works in the registry exactly like a class)
     "oblique_random_forest": oblique_random_forest,
     "adaboost": adaboost,
+    # week 7: the two boosters and a probabilistic baseline (06_boosting)
+    "gradient_boosting": GradientBoostingClassifier,
+    "hist_gradient_boosting": HistGradientBoostingClassifier,
+    "naive_bayes": GaussianNB,
 }
 
 
