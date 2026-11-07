@@ -37,6 +37,10 @@ def save_run(results_dir: str, run: str, config: dict, report_text: str) -> str:
         f"random_state={cv.get('random_state')}  selection_metric={cv.get('selection_metric', 'accuracy')}  "
         f"metrics={cv.get('metrics')}\n"
     )
+    fs = config.get("feature_selection", {})
+    header += ("Feature selection: "
+               + (f"enabled (min_votes={fs.get('min_votes', 2)})" if fs.get("enabled", False) else "disabled")
+               + "\n")
     tuning = config.get("tuning", {})
     if tuning.get("enabled", False):
         header += (f"Tuning: {tuning.get('n_trials')} Optuna trials  "

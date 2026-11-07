@@ -15,6 +15,8 @@ This orchestrates the full pipeline:
     -> score the no-model floor and append the run to the scoreboard
     -> refit the final (tuned) model on the whole development set -> save results
 """
+import shutil
+import tempfile
 from datetime import datetime
 
 import optuna
@@ -73,10 +75,16 @@ def main():
           f"{cv_config['n_splits']}-fold CV")
     print(f"Data:  {len(X_dev)} development rows   |   {len(X_test)} test rows locked away (not used)")
 
-    # preprocessing + model = one estimator: anything that learns is re-fit in every fold
-    pipeline = build_pipeline(config["preprocessing"], config["model"])
+    # preprocessing + (optional) feature selection + model = one estimator: anything that learns
+    # is re-fit in every fold. The cache folder lets tuning reuse the fitted prep/select steps
+    # across trials that only change the model's settings (week 8).
+    selection_config = config.get("feature_selection")
+    cache_dir = tempfile.mkdtemp(prefix="pipeline_cache_")
+    pipeline = build_pipeline(config["preprocessing"], config["model"], selection_config,
+                              memory=cache_dir)
 
     # the no-model floor: a dummy scored on the same folds, for every run to be measured against
+    # (no selection here: the floor is just a baseline, and selection before a dummy buys nothing)
     floor_pipeline = build_pipeline(config["preprocessing"], {"type": "dummy"})
     floor_scores, _ = cross_validate_pipeline(floor_pipeline, X_dev, y_dev, cv,
                                               {selection_metric: scorers[selection_metric]},
@@ -104,7 +112,10 @@ def main():
         if model_type not in search_spaces:
             raise ValueError(f"tuning is enabled but config.yaml has no tuning.search_spaces for "
                              f"'{model_type}'. Add one, or set tuning.enabled: false.")
-        search_space = search_spaces[model_type]
+        search_space = dict(search_spaces[model_type])
+        # feature selection's `select__min_votes` is tuned together with the model (week 8)
+        if selection_config and selection_config.get("enabled", False):
+            search_space.update(selection_config.get("search_space", {}))
         n_trials = tuning_config["n_trials"]
         tuning_seed = tuning_config["random_state"]
         optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -143,9 +154,19 @@ def main():
     refit = f"Final model: {model_type} refit on all {len(X_dev)} development rows."
     report += "\n" + refit + "\n"
 
+    # which features the final model keeps (week 8)
+    if selection_config and selection_config.get("enabled", False):
+        kept = pipeline.named_steps["select"].get_feature_names_out(
+            input_features=pipeline.named_steps["prep"].get_feature_names_out())
+        print(f"Features kept ({len(kept)}): {', '.join(kept)}")
+        report += f"Features kept ({len(kept)}): {', '.join(kept)}\n"
+
     # one row per run on the scoreboard, with the no-model floor and the untuned score
+    fs_label = ("on (min_votes=" + str(selection_config.get("min_votes", 2)) + ")"
+                if selection_config and selection_config.get("enabled", False) else "off")
     row = {"run": run, "data": config["data"]["path"], "model": model_type, "tuned": tuning_enabled,
            "encoder": config["preprocessing"]["encoder"], "scaler": config["preprocessing"]["scaler"],
+           "feature_selection": fs_label,
            "params": str(config["model"].get("params")),
            "tuned_params": str(study.best_params) if tuning_enabled else "",
            "metric": selection_metric, "mean": final_scores["validation"].mean(),
@@ -161,6 +182,7 @@ def main():
     report += f"\nScoreboard:\n{board}\n"
 
     path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report)
+    shutil.rmtree(cache_dir, ignore_errors=True)   # week 8: delete this run's cache folder
     print(f"\n{refit}\nFull report (per-fold tables, tuning, confusion matrix, fairness): {path}")
 
 

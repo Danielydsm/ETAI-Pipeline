@@ -42,6 +42,7 @@ This table is updated after each practical class, so you can always see what cha
 | 3 | Data diagnosis (EDA) | `clean_dataset()` driven by the diagnosis written as rules in `config.yaml` (`validity_rules`, `canonical_categories`, `placeholder_tokens`, `redundant_columns`): category cleanup, impossible values / placeholders → `NaN`, redundant-column removal |
 | 4 | Leak-safe preprocessing + honest evaluation | Row-preserving cleaning + training-only `drop_duplicate_rows()`; `split_dev_test()` (locked test set) replacing `split_train_test`; `build_preprocessor()` (mechanism-matched imputation, target encoding, robust scaling — all fitted inside the `Pipeline`); stratified 5-fold CV (`cross_validate_pipeline`, out-of-fold classification report + fairness check); `dummy` and `random_forest` models |
 | 7 | Boosting + evaluation by probabilities | `gradient_boosting`, `hist_gradient_boosting` and `naive_bayes` models; eight metrics scored from out-of-fold **probabilities** (ROC-AUC is the selection metric, chosen before comparing models); a **scoreboard** (`results/runs.csv`) keeps every run with the no-model floor and the untuned score; the corrected paired t-test separates real differences from noise |
+| 8 | Feature selection + XGBoost | `xgboost` model (gradient boosting with per-split brakes: `gamma`, `reg_alpha`, `reg_lambda`, `min_child_weight`); a `VoteSelector` feature-selection step (`min_votes` of a random forest, gradient boosting and an L1 logistic regression), switchable in `config.yaml` and tuned with the model (`select__min_votes`); a per-run cache folder (`tempfile.mkdtemp`) so tuning doesn't refit prep/select every trial; the kept features are printed and recorded on the scoreboard |
 
 ## Model evaluation
 
@@ -87,6 +88,24 @@ The corrected paired t-test on the same folds says HistGradientBoosting is not s
 better than random forest, logistic regression or the decision tree, but it is better than
 gradient boosting (p ≈ 0.04), AdaBoost and the oblique forest (p ≈ 0.02), and far better than
 Naive Bayes (p ≈ 0.0001).
+
+## Feature selection (Week 8)
+
+Week 8 added **XGBoost** and a **`VoteSelector`** feature-selection step (a random forest,
+gradient boosting and an L1 logistic regression vote; features with at least `min_votes` are
+kept), switchable in `config.yaml`. To answer "does selection pay off?", XGBoost was tuned
+(nested CV, 30 trials) **with** and **without** selection:
+
+| Config | F1 (mean ± std) | Untuned | Features kept |
+|---|---|---|---|
+| With selection | 0.622 ± 0.015 | 0.590 | 2 (`age`, `priors_count`) |
+| Without selection | 0.624 ± 0.012 | 0.604 | 10 (all) |
+
+The corrected paired t-test says the two are indistinguishable (mean diff −0.002, p = 0.80).
+On COMPAS — a clean dataset with ~10 mostly-informative features — selection buys nothing: the
+2-feature model ties the full one, but is faster and far easier to explain. I'd keep selection
+**off** for this dataset (it only adds training cost), and turn it on where features are noisy
+or numerous, which is exactly where the notebook showed it paying off.
 
 ## Environment setup
 
