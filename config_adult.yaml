@@ -1,0 +1,114 @@
+# Week 9, Option A: the same pipeline on a NEW dataset (Adult income, 1994 US Census).
+# Everything COMPAS-specific is changed here; the source code stays general. The COMPAS
+# baseline lives in config.yaml. Run with `python main_week08.py`.
+
+data:
+  path: "data/adult_train.csv"
+  target: "income_over_50k"
+  sensitive_attr: "sex"          # audited for fairness; excluded from model features
+  # Kept in the data but never used as model features: the row id and the census sampling
+  # weight (`fnlwgt` = how many people this row represents, not a property of the person).
+  # `education` is redundant with `education_num` and is dropped earlier (redundant_columns).
+  # Note: `race` is left in as a feature (see preprocessing.categorical_features); `sex` is
+  # the audited attribute, so it must NOT also be a feature.
+  drop_columns: ["id", "fnlwgt"]
+
+# Option A: after refitting, predict these unseen people (same cleaning, no target column).
+prediction:
+  new_data_path: "data/adult_new.csv"
+  output_path: "results_adult/adult_new_predictions.csv"
+
+# Week 4: the locked test set. Unchanged from COMPAS -- 20% of adult_train is set aside,
+# never used; the real "test" for Option A is adult_new.csv (predicted above).
+test_set:
+  size: 0.2
+  random_state: 42
+
+cv:
+  n_splits: 5
+  shuffle: true
+  random_state: 42
+  metrics: ["accuracy", "balanced_accuracy", "precision", "recall", "f1", "fbeta_2", "roc_auc", "average_precision"]
+  selection_metric: "f1"
+  n_jobs: 1
+
+# The week 9 diagnosis (notebook 09_beyond_compas, §2.2), written down as cleaning rules.
+diagnostics:
+  id_column: "id"
+  # no numeric column loads as text here: the '?' placeholder only shows up in categorical
+  # columns (workclass, occupation, native_country), which are handled by canonical_categories
+  numeric_text_columns: []
+  placeholder_tokens: ["-", "?", "n/a", "N/A", "na", "NA", "", "nan"]
+  validity_rules:
+    age: {min: 17, max: 90}        # 74 people are 17 -- valid here (COMPAS's min 18 would erase them)
+    hours_per_week: {min: 1, max: 99}
+    capital_gain: {min: 0}         # 99999 is the census top code, NOT an error -> don't make it missing
+    capital_loss: {min: 0}
+  canonical_categories:
+    # empty maps on purpose: listing these three columns is what routes them through the
+    # placeholder -> NaN cleanup in _canonicalize_categories() ('?' becomes a real gap)
+    workclass: {}
+    occupation: {}
+    native_country: {}
+  redundant_columns: ["education"]  # 'education' == 'education_num', one-to-one
+
+preprocessing:
+  encoder: "target"      # compact (1 column per feature): native_country alone has 41 categories
+  scaler: "robust"       # median/IQR: capital_gain is 92% zeros with a few huge spikes
+  numeric_features: ["age", "education_num", "capital_gain", "capital_loss", "hours_per_week",
+                     "v01", "v02", "v03", "v04", "v05", "v06", "v07", "v08", "v09",
+                     "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18"]
+  categorical_features: ["workclass", "marital_status", "occupation", "relationship", "race",
+                         "native_country", "v19", "v20", "v21", "v22", "v23", "v24", "v25"]
+  # workclass/occupation '?': the SAME people are missing in both columns and earn >50K about
+  # half as often -- the missingness itself carries signal, so it gets a flag beside the imputed value
+  mnar_indicator_sources: ["workclass", "occupation"]
+  random_state: 42
+  imputation:
+    numeric_strategy: "median"
+    categorical_strategy: "most_frequent"
+
+# Week 8: feature selection. Left on so it can decide which of the 25 anonymised `v` columns
+# actually help (that decision is one of today's questions). Turn off for a first smoke test.
+feature_selection:
+  enabled: true
+  min_votes: 2
+  random_state: 42
+  search_space:
+    select__min_votes: {type: int, low: 1, high: 3}
+
+model:
+  type: "xgboost"
+  params:
+    random_state: 42
+    n_jobs: -1
+    # regularised on purpose: xgboost's defaults (depth 6, 100 trees, lr 0.3) overfit
+    # Adult's small dev set (train-val gap +0.12); this shallower, slower-learning tree
+    # reaches all three target scores (ROC-AUC 0.91, acc 0.86, F1 0.68) untuned.
+    max_depth: 3
+    n_estimators: 300
+    learning_rate: 0.1
+
+# Week 5: hyperparameter tuning. Left off on Adult: with only 4,800 development rows, tuning
+# (even 15 trials) overfits the inner folds and the nested estimate came out *worse* than the
+# regularised default (F1 0.655 vs 0.669). The default above already reaches the targets.
+tuning:
+  enabled: false
+  n_trials: 15
+  n_splits: 5
+  random_state: 42
+  search_spaces:
+    xgboost:
+      model__n_estimators: {type: int, low: 50, high: 600, log: true}
+      model__learning_rate: {type: float, low: 0.01, high: 0.3, log: true}
+      model__max_depth: {type: int, low: 1, high: 8}
+      model__min_child_weight: {type: float, low: 1.0, high: 50.0, log: true}
+      model__subsample: {type: float, low: 0.5, high: 1.0}
+      model__colsample_bytree: {type: float, low: 0.5, high: 1.0}
+      model__reg_lambda: {type: float, low: 0.01, high: 10.0, log: true}
+      model__reg_alpha: {type: float, low: 0.001, high: 10.0, log: true}
+      model__gamma: {type: float, low: 0.0, high: 5.0}
+
+output:
+  results_dir: "results_adult"    # separate folder so the scoreboard doesn't mix problems
+  scoreboard: "results_adult/runs.csv"
