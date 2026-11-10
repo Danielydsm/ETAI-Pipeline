@@ -63,6 +63,10 @@ preprocessing:
   # workclass/occupation '?': the SAME people are missing in both columns and earn >50K about
   # half as often -- the missingness itself carries signal, so it gets a flag beside the imputed value
   mnar_indicator_sources: ["workclass", "occupation"]
+  # Week 6 challenge: engineered features -- fixed formulas (nothing learned from the data, so
+  # safe before the split and on new data). Each {name: expression} is evaluated with pandas
+  # df.eval(). List every new column in numeric_features (or categorical_features) above.
+  engineered_features: {}
   random_state: 42
   imputation:
     numeric_strategy: "median"

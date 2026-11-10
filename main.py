@@ -30,7 +30,8 @@ from sklearn.model_selection import StratifiedKFold
 
 from src.data import load_data
 from src.preprocessing import (
-    clean_dataset, drop_duplicate_rows, split_features_target, split_dev_test,
+    add_engineered_features, clean_dataset, drop_duplicate_rows,
+    split_features_target, split_dev_test,
 )
 from src.model import build_pipeline
 from src.evaluate import (
@@ -56,6 +57,7 @@ def predict_new_people(config: dict, pipeline) -> str:
     id_col = config["diagnostics"].get("id_column", "id")
     new_raw = load_data(config["prediction"]["new_data_path"])
     new_clean = clean_dataset(new_raw, config["diagnostics"])
+    new_clean = add_engineered_features(new_clean, config["preprocessing"].get("engineered_features"))
 
     mnar_sources = config["preprocessing"].get("mnar_indicator_sources", [])
     X_new, _, _ = split_features_target(new_clean, config["data"], mnar_sources)
@@ -87,6 +89,8 @@ def run_pipeline(config_path: str = "config.yaml"):
     df_clean = clean_dataset(df_raw, config["diagnostics"])
     # training data only: the same person must not count twice, or sit in both dev and test
     df_clean = drop_duplicate_rows(df_clean, config["diagnostics"].get("id_column"))
+    # fixed-formula features (week 6 challenge): nothing learned, so safe before the split
+    df_clean = add_engineered_features(df_clean, config["preprocessing"].get("engineered_features"))
 
     mnar_sources = config["preprocessing"].get("mnar_indicator_sources", [])
     X, y, extras = split_features_target(df_clean, config["data"], mnar_sources)

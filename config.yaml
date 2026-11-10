@@ -84,6 +84,12 @@ preprocessing:
   # extra "_was_missing" flag alongside their imputed value, so the model can still see the
   # pattern even though the fill itself is just a median/mode
   mnar_indicator_sources: ["priors_count", "c_charge_degree"]
+  # Week 6 challenge: engineered features -- fixed formulas (nothing learned from the data, so
+  # safe before the split and on new data). Each {name: expression} is evaluated with pandas
+  # df.eval(): simple arithmetic/comparison only (no method calls like .clip()). List every new
+  # column in numeric_features (or categorical_features) above.
+  engineered_features: {}
+  #   priors_per_adult_year: "priors_count / (age - 17)"   # rate: priors per adult year (age >= 18)
   # seed for the target encoder's internal cross-fitting (week 4: sklearn's TargetEncoder)
   random_state: 42
   imputation:

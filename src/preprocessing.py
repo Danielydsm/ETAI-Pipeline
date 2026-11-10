@@ -116,6 +116,21 @@ def add_missingness_indicators(df: pd.DataFrame, mnar_indicator_sources: list) -
     return out
 
 
+def add_engineered_features(df: pd.DataFrame, formulas: dict) -> pd.DataFrame:
+    """Adds fixed-formula features (week 6 challenge), read from the config.
+
+    Each entry of `formulas` is `{new_column: expression}`, evaluated with `df.eval()`.
+    Fixed formulas only -- nothing is learned from the data -- so, like
+    `add_missingness_indicators`, this is safe to run before the split and on new data.
+    The new columns must also be listed in `preprocessing.numeric_features` (or
+    `categorical_features`) so the ColumnTransformer picks them up.
+    """
+    out = df.copy()
+    for name, expression in (formulas or {}).items():
+        out[name] = out.eval(expression)
+    return out
+
+
 def split_features_target(df: pd.DataFrame, data_config: dict, mnar_indicator_sources: list):
     """
     Returns (X, y, extras). `y` is `None` and `extras` has no target column when called
