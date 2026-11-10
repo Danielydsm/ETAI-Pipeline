@@ -16,20 +16,23 @@ go on.
 
 ```
 .
-├── main.py                # entry point: run the whole pipeline
-├── config.yaml             # all tunable settings live here
+├── main.py                # entry point: `python main.py [config]` runs the whole pipeline
+├── config.yaml            # COMPAS config (default)
+├── config_adult.yaml      # Adult-income config (week 9, Option A)
 ├── requirements.txt
 ├── src/
-│   ├── data.py             # loading
-│   ├── preprocessing.py    # cleaning + train/test split
-│   ├── model.py             # model construction
-│   ├── evaluate.py         # metrics from probabilities + fairness check
-│   ├── tuning.py           # Optuna hyperparameter search + nested CV
-│   └── results.py          # saves each run's report + the scoreboard
-├── results/                # created automatically -- one file per run (not tracked in git)
+│   ├── data.py            # loading
+│   ├── preprocessing.py   # cleaning + feature/target split + encoder/scaler pipeline
+│   ├── model.py           # model registry + feature selection + Pipeline assembly
+│   ├── evaluate.py        # metrics from probabilities + fairness check
+│   ├── tuning.py          # Optuna hyperparameter search + nested CV
+│   └── results.py         # saves each run's report + the scoreboard
+├── weeks-tasks/           # one file per week: what changed and why
+├── results/               # generated per run (git-ignored)
 └── data/
     ├── compas_two_year_recidivism.csv
-    └── README.md            # problem description + full data dictionary
+    ├── adult_train.csv / adult_new.csv / ADULT_README.md
+    └── README.md          # problem description + full data dictionary
 ```
 
 ## Pipeline progress
@@ -43,7 +46,7 @@ This table is updated after each practical class, so you can always see what cha
 | 4 | Leak-safe preprocessing + honest evaluation | Row-preserving cleaning + training-only `drop_duplicate_rows()`; `split_dev_test()` (locked test set) replacing `split_train_test`; `build_preprocessor()` (mechanism-matched imputation, target encoding, robust scaling — all fitted inside the `Pipeline`); stratified 5-fold CV (`cross_validate_pipeline`, out-of-fold classification report + fairness check); `dummy` and `random_forest` models |
 | 7 | Boosting + evaluation by probabilities | `gradient_boosting`, `hist_gradient_boosting` and `naive_bayes` models; eight metrics scored from out-of-fold **probabilities** (ROC-AUC is the selection metric, chosen before comparing models); a **scoreboard** (`results/runs.csv`) keeps every run with the no-model floor and the untuned score; the corrected paired t-test separates real differences from noise |
 | 8 | Feature selection + XGBoost | `xgboost` model (gradient boosting with per-split brakes: `gamma`, `reg_alpha`, `reg_lambda`, `min_child_weight`); a `VoteSelector` feature-selection step (`min_votes` of a random forest, gradient boosting and an L1 logistic regression), switchable in `config.yaml` and tuned with the model (`select__min_votes`); a per-run cache folder (`tempfile.mkdtemp`) so tuning doesn't refit prep/select every trial; the kept features are printed and recorded on the scoreboard |
-| 9 | Generalisation beyond COMPAS | `config_adult.yaml` + `main_week08.py` (Option A: the same pipeline on a new dataset, Adult income); `run_pipeline(config_path)` extracted from `main.py` so the COMPAS run is untouched; `fairness_report` made dataset-agnostic (the COMPAS `score_text` comparison is now conditional); a prediction step for `adult_new.csv`; a regularised XGBoost default that clears all three target scores |
+| 9 | Generalisation beyond COMPAS | `config_adult.yaml` (Option A: the same pipeline on a new dataset, Adult income); `main.py` now takes the config as an argument (`python main.py config_adult.yaml`), so there is a single entry point; a config-driven `prediction` step for `adult_new.csv`; `fairness_report` made dataset-agnostic (the COMPAS `score_text` comparison is now conditional); a regularised XGBoost default that clears all three target scores |
 
 ## Model evaluation
 
@@ -115,7 +118,7 @@ new dataset -- **Adult income** (1994 US Census / UCI): predict whether a person
 still a yes/no question. Run it with:
 
 ```bash
-python main_week08.py
+python main.py config_adult.yaml
 ```
 
 This runs the pipeline on `config_adult.yaml` and, after refitting, predicts the 2,000 unseen people in
@@ -211,10 +214,13 @@ With the environment active (see above), from the project's root
 folder, on any OS:
 
 ```bash
-python main.py
+python main.py                    # COMPAS (config.yaml, the default)
+python main.py config_adult.yaml  # Adult income (week 9)
 ```
 
-This loads `config.yaml`, loads and preprocesses the data, trains the model, and prints:
+The config file drives the whole run -- dataset, cleaning, preprocessing, model, tuning and
+output are all read from it, so changing datasets or models is a config change, not a code
+change. The pipeline loads and preprocesses the data, trains the model, and prints:
 
 - **train accuracy and test accuracy, side by side.** Comparing the two is how you catch overfitting: if the model looks much better on the data it was trained on than on data it's never seen, it has memorised rather than learned something that generalises. 
 - a classification report on the test set

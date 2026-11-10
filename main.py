@@ -2,9 +2,11 @@
 Entry point for the predictive pipeline.
 
 Run with:
-    python main.py
+    python main.py                     # config.yaml (COMPAS by default)
+    python main.py config_adult.yaml   # any config; everything else is read from it
 
-This orchestrates the full pipeline:
+The whole pipeline is config-driven: one config file chooses the dataset, cleaning rules,
+preprocessing, model, tuning and output. It orchestrates:
     load config -> load data -> diagnose/clean -> drop duplicate rows (training only)
     -> split features/target -> lock the test set
     -> preprocessing + model as ONE Pipeline (src/model.py)
@@ -14,12 +16,15 @@ This orchestrates the full pipeline:
     -> out-of-fold classification report + fairness check
     -> score the no-model floor and append the run to the scoreboard
     -> refit the final (tuned) model on the whole development set -> save results
+    -> (optional) predict unseen data, when the config has a `prediction` section (week 9)
 """
+import argparse
 import shutil
 import tempfile
 from datetime import datetime
 
 import optuna
+import pandas as pd
 import yaml
 from sklearn.model_selection import StratifiedKFold
 
@@ -41,11 +46,36 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def predict_new_people(config: dict, pipeline) -> str:
+    """Predicts the unseen rows named by `config["prediction"]`, with the refit `pipeline`.
+
+    Cleaning is identical to training, but `drop_duplicate_rows()` is never called here:
+    every unseen row needs a prediction (rows out == rows in). Saves id, probability and
+    the 0/1 prediction to `config["prediction"]["output_path"]` and returns that path.
+    """
+    id_col = config["diagnostics"].get("id_column", "id")
+    new_raw = load_data(config["prediction"]["new_data_path"])
+    new_clean = clean_dataset(new_raw, config["diagnostics"])
+
+    mnar_sources = config["preprocessing"].get("mnar_indicator_sources", [])
+    X_new, _, _ = split_features_target(new_clean, config["data"], mnar_sources)
+
+    proba = pipeline.predict_proba(X_new)[:, 1]
+    threshold = config["prediction"].get("threshold", 0.5)
+    prediction = (proba >= threshold).astype(int)
+
+    out = pd.DataFrame({"id": new_clean[id_col], "probability": proba, "prediction": prediction})
+    out.to_csv(config["prediction"]["output_path"], index=False)
+    print(f"Predicted {len(out)} new people -> {config['prediction']['output_path']} "
+          f"(rows out = rows in)")
+    return config["prediction"]["output_path"]
+
+
 def run_pipeline(config_path: str = "config.yaml"):
     """Runs the full pipeline for `config_path`, returning (config, run_id, final_pipeline).
 
-    `final_pipeline` is the model refit on the whole development set, so a caller can use it
-    to predict unseen data (week 9, Option A). `python main.py` still runs COMPAS unchanged.
+    `final_pipeline` is the model refit on the whole development set. If the config has a
+    `prediction` section, the unseen rows are predicted and saved at the end (week 9).
     """
     config = load_config(config_path)
     run = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -190,11 +220,20 @@ def run_pipeline(config_path: str = "config.yaml"):
     shutil.rmtree(cache_dir, ignore_errors=True)   # week 8: delete this run's cache folder
     print(f"\n{refit}\nFull report (per-fold tables, tuning, confusion matrix, fairness): {path}")
 
+    # optional prediction step (week 9): predict unseen data when the config asks for it
+    if config.get("prediction"):
+        predict_new_people(config, pipeline)
+
     return config, run, pipeline
 
 
 def main():
-    run_pipeline("config.yaml")
+    parser = argparse.ArgumentParser(
+        description="Run the predictive pipeline. Everything is read from one config file.")
+    parser.add_argument("config", nargs="?", default="config.yaml",
+                        help="path to a config YAML (default: config.yaml)")
+    args = parser.parse_args()
+    run_pipeline(args.config)
 
 
 if __name__ == "__main__":
