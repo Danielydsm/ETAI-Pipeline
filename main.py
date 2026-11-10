@@ -41,8 +41,13 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def main():
-    config = load_config()
+def run_pipeline(config_path: str = "config.yaml"):
+    """Runs the full pipeline for `config_path`, returning (config, run_id, final_pipeline).
+
+    `final_pipeline` is the model refit on the whole development set, so a caller can use it
+    to predict unseen data (week 9, Option A). `python main.py` still runs COMPAS unchanged.
+    """
+    config = load_config(config_path)
     run = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_type = config["model"]["type"]
 
@@ -184,6 +189,12 @@ def main():
     path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report)
     shutil.rmtree(cache_dir, ignore_errors=True)   # week 8: delete this run's cache folder
     print(f"\n{refit}\nFull report (per-fold tables, tuning, confusion matrix, fairness): {path}")
+
+    return config, run, pipeline
+
+
+def main():
+    run_pipeline("config.yaml")
 
 
 if __name__ == "__main__":

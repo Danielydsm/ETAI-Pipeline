@@ -43,6 +43,7 @@ This table is updated after each practical class, so you can always see what cha
 | 4 | Leak-safe preprocessing + honest evaluation | Row-preserving cleaning + training-only `drop_duplicate_rows()`; `split_dev_test()` (locked test set) replacing `split_train_test`; `build_preprocessor()` (mechanism-matched imputation, target encoding, robust scaling — all fitted inside the `Pipeline`); stratified 5-fold CV (`cross_validate_pipeline`, out-of-fold classification report + fairness check); `dummy` and `random_forest` models |
 | 7 | Boosting + evaluation by probabilities | `gradient_boosting`, `hist_gradient_boosting` and `naive_bayes` models; eight metrics scored from out-of-fold **probabilities** (ROC-AUC is the selection metric, chosen before comparing models); a **scoreboard** (`results/runs.csv`) keeps every run with the no-model floor and the untuned score; the corrected paired t-test separates real differences from noise |
 | 8 | Feature selection + XGBoost | `xgboost` model (gradient boosting with per-split brakes: `gamma`, `reg_alpha`, `reg_lambda`, `min_child_weight`); a `VoteSelector` feature-selection step (`min_votes` of a random forest, gradient boosting and an L1 logistic regression), switchable in `config.yaml` and tuned with the model (`select__min_votes`); a per-run cache folder (`tempfile.mkdtemp`) so tuning doesn't refit prep/select every trial; the kept features are printed and recorded on the scoreboard |
+| 9 | Generalisation beyond COMPAS | `config_adult.yaml` + `main_week08.py` (Option A: the same pipeline on a new dataset, Adult income); `run_pipeline(config_path)` extracted from `main.py` so the COMPAS run is untouched; `fairness_report` made dataset-agnostic (the COMPAS `score_text` comparison is now conditional); a prediction step for `adult_new.csv`; a regularised XGBoost default that clears all three target scores |
 
 ## Model evaluation
 
@@ -91,7 +92,7 @@ Naive Bayes (p ≈ 0.0001).
 
 ## Feature selection (Week 8)
 
-Week 8 added **XGBoost** and a **`VoteSelector`** feature-selection step (a random forest,
+Week 8 added **XGBoost** and a `VoteSelector` feature-selection step (a random forest,
 gradient boosting and an L1 logistic regression vote; features with at least `min_votes` are
 kept), switchable in `config.yaml`. To answer "does selection pay off?", XGBoost was tuned
 (nested CV, 30 trials) **with** and **without** selection:
@@ -107,11 +108,51 @@ On COMPAS — a clean dataset with ~10 mostly-informative features — selection
 **off** for this dataset (it only adds training cost), and turn it on where features are noisy
 or numerous, which is exactly where the notebook showed it paying off.
 
+## Beyond COMPAS (Week 9)
+
+Week 9 asked whether the pipeline only works for COMPAS, or actually generalises. **Option A** swaps in a
+new dataset -- **Adult income** (1994 US Census / UCI): predict whether a person earns over $50K a year,
+still a yes/no question. Run it with:
+
+```bash
+python main_week08.py
+```
+
+This runs the pipeline on `config_adult.yaml` and, after refitting, predicts the 2,000 unseen people in
+`data/adult_new.csv` (id + probability + 0/1 prediction → `results_adult/adult_new_predictions.csv`).
+`python main.py` (COMPAS) is unchanged.
+
+**What broke, and how it was fixed**
+
+| Broke | Why | Fix |
+|---|---|---|
+| `fairness_report` → `KeyError: 'score_text'` | Adult has no COMPAS `score_text` column | the COMPAS comparison now runs only when `score_text` is present |
+| default XGBoost overfit (gap +0.12, accuracy 0.848) | small dev set (4,800 rows) | regularised tree: `max_depth 3`, `n_estimators 300`, `learning_rate 0.1` |
+| tuning made F1 *worse* (0.669 → 0.655) | 15 trials overfit the inner folds | tuning left off; the regularised default already meets the targets |
+
+**Results** (5-fold CV on the development set, three targets in the same run)
+
+| Metric | Target | Floor | Reached |
+|---|---|---|---|
+| ROC-AUC | ≥ 0.90 | 0.50 | **0.911 ± 0.016** ✓ |
+| Accuracy | ≥ 0.855 | 0.76 | **0.862 ± 0.010** ✓ |
+| F1 (class 1, threshold 0.5) | ≥ 0.66 | 0.00 | **0.685 ± 0.030** ✓ |
+
+Feature selection keeps 8 of 36 features (`age`, `education_num`, `capital_gain`, `capital_loss`,
+`hours_per_week`, `marital_status`, `occupation`, `relationship`) -- every one of the 25 anonymised
+`v`-columns, plus `workclass`, `native_country` and `race`, is voted out.
+
+The hardest assumption to find was the fairness report's quiet COMPAS dependency: it read `score_text`  
+commi  
+clear all three. Feature selection paid off here (F1 0.685 vs 0.646 without it), the opposite of COMPAS,  
+which is exactly the situation the week-8 notebook said selection is for: many noisy features.
+
 ## Environment setup
 
 You only need to do this once per machine.
 
 ### macOS / Linux
+
 ```bash
 python3 -m venv venv                 # creates an isolated Python environment in a folder called "venv"
 source venv/bin/activate             # activates it -- packages install here, not system-wide, and stay out of your other projects
@@ -119,18 +160,23 @@ pip install -r requirements.txt      # installs the exact packages this project 
 ```
 
 ### Windows -- PowerShell
+
 ```powershell
 python -m venv venv                  # creates an isolated Python environment in a folder called "venv"
 venv\Scripts\activate                # activates it -- packages install here, not system-wide, and stay out of your other projects
 pip install -r requirements.txt      # installs the exact packages this project needs, into that environment
 ```
+
 If PowerShell blocks the activation script, run this once first:
+
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
 ### Windows -- cmd.exe
+
 Same three steps as above, just with cmd's own activation command:
+
 ```cmd
 python -m venv venv
 venv\Scripts\activate.bat
@@ -144,12 +190,14 @@ Once the environment is active you'll see `(venv)` at the start of your prompt. 
 Creating the environment and installing packages only needs to happen once, ever. Every other time you sit down to work -- a new terminal window, the next practical class, tomorrow -- you don't repeat any of the steps above. From the project's root folder, you just need to:
 
 **macOS / Linux**
+
 ```bash
 source venv/bin/activate
 python main.py
 ```
 
 **Windows**
+
 ```powershell
 venv\Scripts\activate
 python main.py
@@ -161,15 +209,17 @@ That's it -- activate, then run. If you don't see `(venv)` at the start of your 
 
 With the environment active (see above), from the project's root
 folder, on any OS:
+
 ```bash
 python main.py
 ```
 
 This loads `config.yaml`, loads and preprocesses the data, trains the model, and prints:
+
 - **train accuracy and test accuracy, side by side.** Comparing the two is how you catch overfitting: if the model looks much better on the data it was trained on than on data it's never seen, it has memorised rather than learned something that generalises. 
 - a classification report on the test set
 - a false-positive-rate-by-race comparison between our model and
-  COMPAS's own score
+COMPAS's own score
 
 All of this is also saved to a timestamped file in `results/` (e.g.`results/run_20260916_143012.txt`), so it doesn't just scroll past in your terminal -- open it later, or change something in `config.yaml` (like the model type) and compare the new file to the last one.
 `results/` is created automatically the first time you run the
