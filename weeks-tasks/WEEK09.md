@@ -7,8 +7,7 @@ Fazer o pipeline funcionar **além do COMPAS** (notebook `09_beyond_compas.ipynb
 ## O que mudou
 
 - **`config_adult.yaml`** — novo config (target, `sensitive_attr`, diagnóstico, preprocessing, output) mantendo o `src/` geral.
-- **`main_week08.py`** — novo entry point: roda o pipeline em `config_adult.yaml` e prevê `adult_new.csv` (mesma limpeza, **sem** de-dup).
-- **`main.py`** — extraí `run_pipeline(config_path)` (retorna `config, run, pipeline` refitado); `python main.py` (COMPAS) continua idêntico.
+- **`main.py`** — único entry point: aceita o config como argumento (`python main.py config_adult.yaml`); com a seção `prediction` no config, prevê `adult_new.csv` (mesma limpeza, **sem** de-dup). `python main.py` (COMPAS) continua idêntico.
 - **`src/evaluate.py`** — `fairness_report` agora só adiciona a comparação "COMPAS's own score" se `score_text` existir (o único ponto COMPAS-specific que quebrava).
 - **`data/`** — `adult_train.csv`, `adult_new.csv`, `ADULT_README.md`.
 
@@ -22,7 +21,7 @@ Fazer o pipeline funcionar **além do COMPAS** (notebook `09_beyond_compas.ipynb
 
 ## Resultados (alvos atingidos)
 
-5-fold CV no development set (4.800 linhas), os 3 alvos **no mesmo run** (`python main_week08.py`):
+5-fold CV no development set (4.800 linhas), os 3 alvos **no mesmo run** (`python main.py config_adult.yaml`):
 
 | Métrica | Alvo | Floor (sempre "≤50K") | Atingido |
 |---|---|---|---|

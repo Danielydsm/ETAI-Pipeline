@@ -1,6 +1,6 @@
 # Week 9, Option A: the same pipeline on a NEW dataset (Adult income, 1994 US Census).
 # Everything COMPAS-specific is changed here; the source code stays general. The COMPAS
-# baseline lives in config.yaml. Run with `python main_week08.py`.
+# baseline lives in config.yaml. Run with `python main.py config_adult.yaml`.
 
 data:
   path: "data/adult_train.csv"
