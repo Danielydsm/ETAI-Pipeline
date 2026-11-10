@@ -19,16 +19,18 @@ def save_scores(path: str, row: dict) -> pd.DataFrame:
     return runs
 
 
-def save_run(results_dir: str, run: str, config: dict, report_text: str) -> str:
+def save_run(results_dir: str, run: str, config: dict, report_text: str,
+             config_name: str = "config") -> str:
     """
-    Writes one run's full report to a timestamped .txt file inside `results_dir` (created
-    automatically if it doesn't exist yet) and returns the path that was written.
+    Writes one run's full report to `results_dir/run_<config_name>_<run>.txt` (the folder
+    is created automatically if it doesn't exist yet) and returns the path that was written.
     """
     os.makedirs(results_dir, exist_ok=True)
-    path = os.path.join(results_dir, f"run_{run}.txt")
+    path = os.path.join(results_dir, f"run_{config_name}_{run}.txt")
 
     cv = config["cv"]
     header = (
+        f"Config: {config_name}\n"
         f"Run: {run}\n"
         f"Model: {config['model']['type']}  params={config['model'].get('params')}\n"
         f"Preprocessing: encoder={config['preprocessing']['encoder']}  "

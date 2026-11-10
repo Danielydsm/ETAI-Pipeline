@@ -44,6 +44,8 @@ diagnostics:
     age: {min: 18, max: 100}
     decile_score: {min: 1, max: 10}
     juv_fel_count: {min: 0}
+    juv_misd_count: {min: 0}
+    juv_other_count: {min: 0}
     priors_count: {min: 0, max: 60}
   canonical_categories:
     sex:
@@ -179,5 +181,5 @@ tuning:
       model__gamma: {type: float, low: 0.0, high: 5.0}
 
 output:
-  results_dir: "results"   # each run's full report is saved here as a timestamped .txt file
+  results_dir: "results"   # each run's full report is saved here as run_<config>_<date>.txt
   scoreboard: "results/runs.csv"   # one row per run, appended; compare only runs on the same data, cleaning and folds

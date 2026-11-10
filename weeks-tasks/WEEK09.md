@@ -31,7 +31,7 @@ Fazer o pipeline funcionar **além do COMPAS** (notebook `09_beyond_compas.ipynb
 
 - Gap train–validação: **+0.048** (bem regularizado; o default tinha +0.12).
 - **Features mantidas (8):** `age`, `education_num`, `capital_gain`, `capital_loss`, `hours_per_week`, `marital_status`, `occupation`, `relationship` — o `VoteSelector` **descartou todos os 25 `v`-cols anônimos** + `workclass`, `native_country`, `race`.
-- **Previsão:** `results_adult/adult_new_predictions.csv` (2.000 linhas, colunas `id, probability, prediction`; rows out = rows in).
+- **Previsão:** `results/adult_new_predictions.csv` (2.000 linhas, colunas `id, probability, prediction`; rows out = rows in).
 
 ## Conclusões
 

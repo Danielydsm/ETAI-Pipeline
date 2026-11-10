@@ -19,6 +19,7 @@ preprocessing, model, tuning and output. It orchestrates:
     -> (optional) predict unseen data, when the config has a `prediction` section (week 9)
 """
 import argparse
+import os
 import shutil
 import tempfile
 from datetime import datetime
@@ -28,11 +29,9 @@ import pandas as pd
 import yaml
 from sklearn.model_selection import StratifiedKFold
 
-from src.data import load_data
-from src.preprocessing import (
-    add_engineered_features, clean_dataset, drop_duplicate_rows,
-    split_features_target, split_dev_test,
-)
+from src.data import clean_dataset, drop_duplicate_rows, load_data
+from src.features import add_engineered_features
+from src.preprocessing import split_dev_test, split_features_target
 from src.model import build_pipeline
 from src.evaluate import (
     build_scorers, cross_validate_pipeline, cv_report, oof_classification_report,
@@ -81,6 +80,7 @@ def run_pipeline(config_path: str = "config.yaml"):
     """
     config = load_config(config_path)
     run = datetime.now().strftime("%Y%m%d_%H%M%S")
+    config_name = os.path.splitext(os.path.basename(config_path))[0]
     model_type = config["model"]["type"]
 
     # load + diagnose-and-clean: nothing here is learned from the data, so it's safe to run
@@ -220,7 +220,8 @@ def run_pipeline(config_path: str = "config.yaml"):
     print(f"\nScoreboard (runs on the same data and metric; best first)\n{board}")
     report += f"\nScoreboard:\n{board}\n"
 
-    path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report)
+    path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report,
+                    config_name=config_name)
     shutil.rmtree(cache_dir, ignore_errors=True)   # week 8: delete this run's cache folder
     print(f"\n{refit}\nFull report (per-fold tables, tuning, confusion matrix, fairness): {path}")
 

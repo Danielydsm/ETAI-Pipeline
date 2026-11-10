@@ -16,7 +16,7 @@ data:
 # Option A: after refitting, predict these unseen people (same cleaning, no target column).
 prediction:
   new_data_path: "data/adult_new.csv"
-  output_path: "results_adult/adult_new_predictions.csv"
+  output_path: "results/adult_new_predictions.csv"
 
 # Week 4: the locked test set. Unchanged from COMPAS -- 20% of adult_train is set aside,
 # never used; the real "test" for Option A is adult_new.csv (predicted above).
@@ -41,6 +41,7 @@ diagnostics:
   placeholder_tokens: ["-", "?", "n/a", "N/A", "na", "NA", "", "nan"]
   validity_rules:
     age: {min: 17, max: 90}        # 74 people are 17 -- valid here (COMPAS's min 18 would erase them)
+    education_num: {min: 0}        # years of education can't be negative
     hours_per_week: {min: 1, max: 99}
     capital_gain: {min: 0}         # 99999 is the census top code, NOT an error -> don't make it missing
     capital_loss: {min: 0}
@@ -114,5 +115,5 @@ tuning:
       model__gamma: {type: float, low: 0.0, high: 5.0}
 
 output:
-  results_dir: "results_adult"    # separate folder so the scoreboard doesn't mix problems
-  scoreboard: "results_adult/runs.csv"
+  results_dir: "results"    # single results folder; reports are named run_<config>_<date>.txt
+  scoreboard: "results/runs.csv"

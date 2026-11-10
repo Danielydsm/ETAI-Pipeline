@@ -4,6 +4,5 @@ __pycache__/
 .DS_Store
 .ipynb_checkpoints/
 *.egg-info/
-results/
-results_adult/*
-!results_adult/adult_new_predictions.csv
+results/*
+!results/adult_new_predictions.csv

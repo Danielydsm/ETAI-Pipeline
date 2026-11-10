@@ -21,14 +21,15 @@ go on.
 ├── config_adult.yaml      # Adult-income config (week 9, Option A)
 ├── requirements.txt
 ├── src/
-│   ├── data.py            # loading
-│   ├── preprocessing.py   # cleaning + feature/target split + encoder/scaler pipeline
+│   ├── data.py            # loading + cleaning (stateless rules)
+│   ├── features.py        # feature engineering (fixed formulas)
+│   ├── preprocessing.py   # imputation/encoding/scaling + feature/target & dev/test splits
 │   ├── model.py           # model registry + feature selection + Pipeline assembly
 │   ├── evaluate.py        # metrics from probabilities + fairness check
 │   ├── tuning.py          # Optuna hyperparameter search + nested CV
 │   └── results.py         # saves each run's report + the scoreboard
 ├── weeks-tasks/           # one file per week: what changed and why
-├── results/               # generated per run (git-ignored)
+├── results/               # generated per run: run_<config>_<date>.txt (git-ignored)
 └── data/
     ├── compas_two_year_recidivism.csv
     ├── adult_train.csv / adult_new.csv / ADULT_README.md
@@ -122,7 +123,7 @@ python main.py config_adult.yaml
 ```
 
 This runs the pipeline on `config_adult.yaml` and, after refitting, predicts the 2,000 unseen people in
-`data/adult_new.csv` (id + probability + 0/1 prediction → `results_adult/adult_new_predictions.csv`).
+`data/adult_new.csv` (id + probability + 0/1 prediction → `results/adult_new_predictions.csv`).
 `python main.py` (COMPAS) is unchanged.
 
 **What broke, and how it was fixed**
