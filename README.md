@@ -16,7 +16,8 @@ go on.
 
 ```
 .
-├── main.py                # entry point: `python main.py [config]` runs the whole pipeline
+├── main.py                # entry point: `python main.py [config]` trains + saves the model
+├── predict.py             # `python predict.py [config]`: predict unseen data (config-driven)
 ├── config.yaml            # COMPAS config (default)
 ├── config_adult.yaml      # Adult-income config (week 9, Option A)
 ├── requirements.txt
@@ -29,6 +30,7 @@ go on.
 │   ├── tuning.py          # Optuna hyperparameter search + nested CV
 │   └── results.py         # saves each run's report + the scoreboard
 ├── weeks-tasks/           # one file per week: what changed and why
+├── models/                # trained pipelines (git-ignored)
 ├── results/               # generated per run: run_<config>_<date>.txt (git-ignored)
 └── data/
     ├── compas_two_year_recidivism.csv

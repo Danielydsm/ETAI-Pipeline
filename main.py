@@ -24,11 +24,12 @@ import shutil
 import tempfile
 from datetime import datetime
 
+import joblib
 import optuna
-import pandas as pd
 import yaml
 from sklearn.model_selection import StratifiedKFold
 
+from predict import predict
 from src.data import clean_dataset, drop_duplicate_rows, load_data
 from src.features import add_engineered_features
 from src.preprocessing import split_dev_test, split_features_target
@@ -44,32 +45,6 @@ from src.results import save_run, save_scores
 def load_config(path: str = "config.yaml") -> dict:
     with open(path, "r") as f:
         return yaml.safe_load(f)
-
-
-def predict_new_people(config: dict, pipeline) -> str:
-    """Predicts the unseen rows named by `config["prediction"]`, with the refit `pipeline`.
-
-    Cleaning is identical to training, but `drop_duplicate_rows()` is never called here:
-    every unseen row needs a prediction (rows out == rows in). Saves id, probability and
-    the 0/1 prediction to `config["prediction"]["output_path"]` and returns that path.
-    """
-    id_col = config["diagnostics"].get("id_column", "id")
-    new_raw = load_data(config["prediction"]["new_data_path"])
-    new_clean = clean_dataset(new_raw, config["diagnostics"])
-    new_clean = add_engineered_features(new_clean, config["preprocessing"].get("engineered_features"))
-
-    mnar_sources = config["preprocessing"].get("mnar_indicator_sources", [])
-    X_new, _, _ = split_features_target(new_clean, config["data"], mnar_sources)
-
-    proba = pipeline.predict_proba(X_new)[:, 1]
-    threshold = config["prediction"].get("threshold", 0.5)
-    prediction = (proba >= threshold).astype(int)
-
-    out = pd.DataFrame({"id": new_clean[id_col], "probability": proba, "prediction": prediction})
-    out.to_csv(config["prediction"]["output_path"], index=False)
-    print(f"Predicted {len(out)} new people -> {config['prediction']['output_path']} "
-          f"(rows out = rows in)")
-    return config["prediction"]["output_path"]
 
 
 def run_pipeline(config_path: str = "config.yaml"):
@@ -225,9 +200,14 @@ def run_pipeline(config_path: str = "config.yaml"):
     shutil.rmtree(cache_dir, ignore_errors=True)   # week 8: delete this run's cache folder
     print(f"\n{refit}\nFull report (per-fold tables, tuning, confusion matrix, fairness): {path}")
 
-    # optional prediction step (week 9): predict unseen data when the config asks for it
+    # optional prediction step (week 9): save the trained model and predict unseen data,
+    # when the config declares a `prediction` section
     if config.get("prediction"):
-        predict_new_people(config, pipeline)
+        model_path = config["prediction"]["model_path"]
+        os.makedirs(os.path.dirname(model_path) or ".", exist_ok=True)
+        joblib.dump(pipeline, model_path)
+        print(f"Model saved -> {model_path}")
+        predict(config_path)
 
     return config, run, pipeline
 

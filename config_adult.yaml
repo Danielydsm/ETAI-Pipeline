@@ -15,6 +15,7 @@ data:
 
 # Option A: after refitting, predict these unseen people (same cleaning, no target column).
 prediction:
+  model_path: "models/config_adult.joblib"   # the trained pipeline, saved by main.py
   new_data_path: "data/adult_new.csv"
   output_path: "results/adult_new_predictions.csv"
 
