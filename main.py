@@ -2,9 +2,11 @@
 Entry point for the predictive pipeline.
 
 Run with:
-    python main.py
+    python main.py                     # config.yaml (COMPAS by default)
+    python main.py config_adult.yaml   # any config; everything else is read from it
 
-This orchestrates the full pipeline:
+The whole pipeline is config-driven: one config file chooses the dataset, cleaning rules,
+preprocessing, model, tuning and output. It orchestrates:
     load config -> load data -> diagnose/clean -> drop duplicate rows (training only)
     -> split features/target -> lock the test set
     -> preprocessing + model as ONE Pipeline (src/model.py)
@@ -14,19 +16,23 @@ This orchestrates the full pipeline:
     -> out-of-fold classification report + fairness check
     -> score the no-model floor and append the run to the scoreboard
     -> refit the final (tuned) model on the whole development set -> save results
+    -> (optional) predict unseen data, when the config has a `prediction` section (week 9)
 """
+import argparse
+import os
 import shutil
 import tempfile
 from datetime import datetime
 
+import joblib
 import optuna
 import yaml
 from sklearn.model_selection import StratifiedKFold
 
-from src.data import load_data
-from src.preprocessing import (
-    clean_dataset, drop_duplicate_rows, split_features_target, split_dev_test,
-)
+from predict import predict
+from src.data import clean_dataset, drop_duplicate_rows, load_data
+from src.features import add_engineered_features
+from src.preprocessing import split_dev_test, split_features_target
 from src.model import build_pipeline
 from src.evaluate import (
     build_scorers, cross_validate_pipeline, cv_report, oof_classification_report,
@@ -44,11 +50,12 @@ def load_config(path: str = "config.yaml") -> dict:
 def run_pipeline(config_path: str = "config.yaml"):
     """Runs the full pipeline for `config_path`, returning (config, run_id, final_pipeline).
 
-    `final_pipeline` is the model refit on the whole development set, so a caller can use it
-    to predict unseen data (week 9, Option A). `python main.py` still runs COMPAS unchanged.
+    `final_pipeline` is the model refit on the whole development set. If the config has a
+    `prediction` section, the unseen rows are predicted and saved at the end (week 9).
     """
     config = load_config(config_path)
     run = datetime.now().strftime("%Y%m%d_%H%M%S")
+    config_name = os.path.splitext(os.path.basename(config_path))[0]
     model_type = config["model"]["type"]
 
     # load + diagnose-and-clean: nothing here is learned from the data, so it's safe to run
@@ -57,6 +64,8 @@ def run_pipeline(config_path: str = "config.yaml"):
     df_clean = clean_dataset(df_raw, config["diagnostics"])
     # training data only: the same person must not count twice, or sit in both dev and test
     df_clean = drop_duplicate_rows(df_clean, config["diagnostics"].get("id_column"))
+    # fixed-formula features (week 6 challenge): nothing learned, so safe before the split
+    df_clean = add_engineered_features(df_clean, config["preprocessing"].get("engineered_features"))
 
     mnar_sources = config["preprocessing"].get("mnar_indicator_sources", [])
     X, y, extras = split_features_target(df_clean, config["data"], mnar_sources)
@@ -171,6 +180,7 @@ def run_pipeline(config_path: str = "config.yaml"):
                 if selection_config and selection_config.get("enabled", False) else "off")
     row = {"run": run, "data": config["data"]["path"], "model": model_type, "tuned": tuning_enabled,
            "encoder": config["preprocessing"]["encoder"], "scaler": config["preprocessing"]["scaler"],
+           "imputer": config["preprocessing"].get("imputation", {}).get("numeric_strategy", "median"),
            "feature_selection": fs_label,
            "params": str(config["model"].get("params")),
            "tuned_params": str(study.best_params) if tuning_enabled else "",
@@ -180,21 +190,36 @@ def run_pipeline(config_path: str = "config.yaml"):
     runs = save_scores(config.get("output", {}).get("scoreboard", "results/runs.csv"), row)
     same = runs[(runs["data"] == row["data"]) & (runs["metric"] == selection_metric)]
     board = (same.sort_values("mean", ascending=False)
-             [["run", "model", "tuned", "encoder", "scaler", "mean", "std", "untuned", "floor"]]
+             [["run", "model", "tuned", "encoder", "scaler", "imputer", "mean", "std", "untuned", "floor"]]
              .rename(columns={"mean": selection_metric})
              .to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     print(f"\nScoreboard (runs on the same data and metric; best first)\n{board}")
     report += f"\nScoreboard:\n{board}\n"
 
-    path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report)
+    path = save_run(config.get("output", {}).get("results_dir", "results"), run, config, report,
+                    config_name=config_name)
     shutil.rmtree(cache_dir, ignore_errors=True)   # week 8: delete this run's cache folder
     print(f"\n{refit}\nFull report (per-fold tables, tuning, confusion matrix, fairness): {path}")
+
+    # optional prediction step (week 9): save the trained model and predict unseen data,
+    # when the config declares a `prediction` section
+    if config.get("prediction"):
+        model_path = config["prediction"]["model_path"]
+        os.makedirs(os.path.dirname(model_path) or ".", exist_ok=True)
+        joblib.dump(pipeline, model_path)
+        print(f"Model saved -> {model_path}")
+        predict(config_path)
 
     return config, run, pipeline
 
 
 def main():
-    run_pipeline("config.yaml")
+    parser = argparse.ArgumentParser(
+        description="Run the predictive pipeline. Everything is read from one config file.")
+    parser.add_argument("config", nargs="?", default="config.yaml",
+                        help="path to a config YAML (default: config.yaml)")
+    args = parser.parse_args()
+    run_pipeline(args.config)
 
 
 if __name__ == "__main__":

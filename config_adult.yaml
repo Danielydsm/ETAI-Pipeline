@@ -1,6 +1,6 @@
 # Week 9, Option A: the same pipeline on a NEW dataset (Adult income, 1994 US Census).
 # Everything COMPAS-specific is changed here; the source code stays general. The COMPAS
-# baseline lives in config.yaml. Run with `python main_week08.py`.
+# baseline lives in config.yaml. Run with `python main.py config_adult.yaml`.
 
 data:
   path: "data/adult_train.csv"
@@ -15,8 +15,9 @@ data:
 
 # Option A: after refitting, predict these unseen people (same cleaning, no target column).
 prediction:
+  model_path: "models/config_adult.joblib"   # the trained pipeline, saved by main.py
   new_data_path: "data/adult_new.csv"
-  output_path: "results_adult/adult_new_predictions.csv"
+  output_path: "results/adult_new_predictions.csv"
 
 # Week 4: the locked test set. Unchanged from COMPAS -- 20% of adult_train is set aside,
 # never used; the real "test" for Option A is adult_new.csv (predicted above).
@@ -41,6 +42,7 @@ diagnostics:
   placeholder_tokens: ["-", "?", "n/a", "N/A", "na", "NA", "", "nan"]
   validity_rules:
     age: {min: 17, max: 90}        # 74 people are 17 -- valid here (COMPAS's min 18 would erase them)
+    education_num: {min: 0}        # years of education can't be negative
     hours_per_week: {min: 1, max: 99}
     capital_gain: {min: 0}         # 99999 is the census top code, NOT an error -> don't make it missing
     capital_loss: {min: 0}
@@ -63,10 +65,18 @@ preprocessing:
   # workclass/occupation '?': the SAME people are missing in both columns and earn >50K about
   # half as often -- the missingness itself carries signal, so it gets a flag beside the imputed value
   mnar_indicator_sources: ["workclass", "occupation"]
+  # Week 6 challenge: engineered features -- fixed formulas (nothing learned from the data, so
+  # safe before the split and on new data). Each {name: expression} is evaluated with pandas
+  # df.eval(). List every new column in numeric_features (or categorical_features) above.
+  engineered_features: {}
   random_state: 42
   imputation:
-    numeric_strategy: "median"
+    numeric_strategy: "median"        # one of: median | mean | knn | iterative | random_forest
     categorical_strategy: "most_frequent"
+    # Extra knobs for the model-based imputers (ignored by median/mean):
+    #   n_neighbors: 5      # knn
+    #   max_iter: 10        # iterative / random_forest
+    #   n_estimators: 50    # random_forest (missForest)
 
 # Week 8: feature selection. Left on so it can decide which of the 25 anonymised `v` columns
 # actually help (that decision is one of today's questions). Turn off for a first smoke test.
@@ -110,5 +120,5 @@ tuning:
       model__gamma: {type: float, low: 0.0, high: 5.0}
 
 output:
-  results_dir: "results_adult"    # separate folder so the scoreboard doesn't mix problems
-  scoreboard: "results_adult/runs.csv"
+  results_dir: "results"    # single results folder; reports are named run_<config>_<date>.txt
+  scoreboard: "results/runs.csv"

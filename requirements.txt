@@ -2,6 +2,7 @@ pandas>=2.0
 numpy>=1.24
 scikit-learn>=1.8
 category_encoders>=2.6
+joblib>=1.4
 PyYAML>=6.0
 optuna>=4.0
 xgboost>=2.0

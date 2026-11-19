@@ -1,108 +1,30 @@
-"""
-Preprocessing -- raw data in, model-ready data out: category cleanup, domain-rule/
-placeholder -> NaN conversion, de-duplication, mechanism-matched imputation, a
-leak-safe/deployable encoder/scaler pipeline, and the split that sets the final test
-set aside. One file, one obvious place to look for "how does raw data become model-ready."
+"""Preprocessing: cleaned data in, model-ready matrix out.
 
-See Practical/W4/notebooks/02_preprocessing.ipynb for the full walkthrough, and
-03_cross_validation.ipynb for why the split below now creates a *locked* test set.
+This owns the leak-safe, deployable steps that are *learned* from data -- missingness
+flags, imputation, encoding and scaling -- plus the splits that separate features from the
+target and set the locked test set aside. Cleaning (stateless rules) lives in src/data.py
+and feature engineering in src/features.py.
 
 Two things every function here respects, on purpose:
-  - leak-safe: `clean_dataset` and `split_features_target` learn nothing from the data
-    (no means, no category lists, no target), so they're safe to run on the whole
-    dataset. Everything that *is* learned from data -- imputation, encoding, scaling --
-    lives inside `build_preprocessor`'s ColumnTransformer, which sits inside the model's
-    sklearn Pipeline. That means it gets re-fit on the training part of every CV fold,
-    and never sees the validation fold or the locked test set.
-  - deployable from day one: nothing before the split needs the target column --
-    `y` comes back as `None` on label-free inference data, and nothing breaks.
+  - leak-safe: everything that learns from data lives inside `build_preprocessor`'s
+    ColumnTransformer, which sits inside the model's sklearn Pipeline, so it is re-fit on
+    the training part of every CV fold and never sees the validation fold or the test set.
+  - deployable from day one: nothing before the split needs the target column -- `y` comes
+    back as `None` on label-free inference data, and nothing breaks.
+
+See Practical/W4/notebooks/02_preprocessing.ipynb for the full walkthrough.
 """
-import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401  (makes IterativeImputer importable)
+from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.preprocessing import (
     OneHotEncoder, OrdinalEncoder, TargetEncoder, StandardScaler, MinMaxScaler, RobustScaler,
 )
 from category_encoders import CountEncoder
-
-
-def flag_invalid_values(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    """
-    Applies a dict of {column: {"min": ..., "max": ...}} domain rules (either bound is
-    optional) and converts violations to NaN **in place** on `df`. An "impossible but
-    not missing" value (an age of -3, a COMPAS decile score of 15) counts as missing
-    once this runs -- `.isna()` alone would never have caught it.
-
-    Returns a small report: how many violations were found per column.
-    """
-    report_rows = []
-    for column, bounds in rules.items():
-        if column not in df.columns:
-            continue
-        numeric = pd.to_numeric(df[column], errors="coerce")
-        lower_ok = numeric >= bounds["min"] if "min" in bounds else pd.Series(True, index=numeric.index)
-        upper_ok = numeric <= bounds["max"] if "max" in bounds else pd.Series(True, index=numeric.index)
-        violations = numeric.notna() & ~(lower_ok & upper_ok)
-        report_rows.append({"column": column, "rule": bounds, "violations": int(violations.sum())})
-        df.loc[violations, column] = np.nan
-    return pd.DataFrame(report_rows)
-
-
-def _canonicalize_categories(df: pd.DataFrame, columns_and_maps: dict, placeholder_tokens: set) -> pd.DataFrame:
-    out = df.copy()
-    for col, mapping in columns_and_maps.items():
-        if col not in out.columns:
-            continue
-        cleaned = out[col].astype(str).str.strip()
-        lowered = cleaned.str.lower()
-        out[col] = lowered.map(mapping).fillna(cleaned)
-        out.loc[out[col].astype(str).str.strip().isin(placeholder_tokens), col] = np.nan
-    return out
-
-
-def clean_dataset(df: pd.DataFrame, diagnostics_config: dict) -> pd.DataFrame:
-    """
-    Applies the week 3 diagnosis: category cleanup, domain-rule/placeholder -> NaN
-    conversion, and redundant-column removal. Target-agnostic -- safe to call on
-    label-free inference data, since none of this depends on a target column.
-
-    Row-preserving (week 4): every input row comes out, in the same order. Removing
-    duplicate rows is a *training-only* decision and lives in `drop_duplicate_rows()` --
-    at prediction time every row needs a prediction (a Kaggle submission needs one per id).
-    """
-    out = df.copy()
-    placeholder_tokens = set(diagnostics_config.get("placeholder_tokens", []))
-
-    # numeric columns that load as text purely because of a placeholder token
-    for col in diagnostics_config.get("numeric_text_columns", []):
-        if col in out.columns:
-            out[col] = pd.to_numeric(out[col].replace(list(placeholder_tokens), np.nan), errors="coerce")
-
-    flag_invalid_values(out, diagnostics_config.get("validity_rules", {}))
-
-    out = _canonicalize_categories(out, diagnostics_config.get("canonical_categories", {}), placeholder_tokens)
-
-    columns_to_drop = [c for c in diagnostics_config.get("redundant_columns", []) if c in out.columns]
-    out = out.drop(columns=columns_to_drop)
-
-    return out
-
-
-def drop_duplicate_rows(df: pd.DataFrame, id_column: str = None) -> pd.DataFrame:
-    """
-    TRAINING DATA ONLY (week 4). Drops exact duplicate rows and repeated ids (keeping
-    the first), so the same person can't be counted twice -- or land in both the
-    development and the locked test set. Must run *before* `split_dev_test()`.
-
-    Never call this on data you're predicting for: every row there needs a prediction.
-    """
-    out = df.drop_duplicates()
-    if id_column and id_column in out.columns:
-        out = out.drop_duplicates(subset=id_column, keep="first")
-    return out
 
 
 def add_missingness_indicators(df: pd.DataFrame, mnar_indicator_sources: list) -> pd.DataFrame:
@@ -151,15 +73,28 @@ _ENCODERS = {
     "target": lambda seed: TargetEncoder(target_type="binary", cv=StratifiedKFold(5, shuffle=True, random_state=seed)),
 }
 
+# Numeric imputers. "iterative" is MICE with one completed dataset; "random_forest" is the
+# missForest idea (each column predicted from the others by a random forest). Both learn only
+# from the feature columns, never from the target, so they also run on data to predict.
+_NUMERIC_IMPUTERS = {
+    "median": lambda cfg, seed: SimpleImputer(strategy="median"),
+    "mean": lambda cfg, seed: SimpleImputer(strategy="mean"),
+    "knn": lambda cfg, seed: KNNImputer(n_neighbors=cfg.get("n_neighbors", 5)),
+    "iterative": lambda cfg, seed: IterativeImputer(max_iter=cfg.get("max_iter", 10), random_state=seed),
+    "random_forest": lambda cfg, seed: IterativeImputer(
+        estimator=RandomForestRegressor(n_estimators=cfg.get("n_estimators", 50), min_samples_leaf=5,
+                                        random_state=seed, n_jobs=-1),
+        max_iter=cfg.get("max_iter", 10), random_state=seed),
+}
+
 
 def build_preprocessor(preprocessing_config: dict) -> ColumnTransformer:
     """
     Factory: builds a leak-safe ColumnTransformer for the chosen encoder/scaler pair --
-    read from `config.yaml`'s `preprocessing` section (chosen there, not hardcoded
-    here). Every encoder tolerates unseen
-    categories at transform time. Nothing is fit here: fitting happens later, on the
-    training part of each CV fold only, because this object is placed *inside* the
-    model's sklearn Pipeline (see main.py).
+    read from the config's `preprocessing` section (chosen there, not hardcoded here).
+    Every encoder tolerates unseen categories at transform time. Nothing is fit here:
+    fitting happens later, on the training part of each CV fold only, because this object
+    is placed *inside* the model's sklearn Pipeline (see main.py).
     """
     encoder_name = preprocessing_config["encoder"]
     scaler_name = preprocessing_config["scaler"]
@@ -172,9 +107,15 @@ def build_preprocessor(preprocessing_config: dict) -> ColumnTransformer:
     scaler = scaler_factory() if callable(scaler_factory) else scaler_factory
     encoder = _ENCODERS[encoder_name](preprocessing_config.get("random_state"))
 
+    # Scale first, then impute: distance-based imputers (knn, iterative, random_forest) compare
+    # columns on one scale; the scalers ignore NaN when fitting, so nothing leaks.
+    numeric_strategy = imputation.get("numeric_strategy", "median")
+    if numeric_strategy not in _NUMERIC_IMPUTERS:
+        raise ValueError(f"Unknown numeric_strategy: {numeric_strategy}. "
+                         f"Options: {list(_NUMERIC_IMPUTERS)}")
     numeric_pipeline = Pipeline([
-        ("impute", SimpleImputer(strategy=imputation.get("numeric_strategy", "median"))),
         ("scale", scaler),
+        ("impute", _NUMERIC_IMPUTERS[numeric_strategy](imputation, preprocessing_config.get("random_state"))),
     ])
     categorical_pipeline = Pipeline([
         ("impute", SimpleImputer(strategy=imputation.get("categorical_strategy", "most_frequent"))),
@@ -199,7 +140,8 @@ def split_dev_test(X, y, extras, test_size: float, random_state: int):
     *locked test set*:
       - development set: everything we're allowed to learn from and compare models on.
         Cross-validation (src/evaluate.py) splits it again into train/validation folds.
-      - locked test set: never used to fit, tune, compare or choose anything. Its size and seed live in config.yaml's `test_set` section and are never changed after today.
+      - locked test set: never used to fit, tune, compare or choose anything. Its size and
+        seed live in config.yaml's `test_set` section and are never changed after today.
     """
     X_dev, X_test, y_dev, y_test, extras_dev, extras_test = train_test_split(
         X, y, extras, test_size=test_size, random_state=random_state, stratify=y
